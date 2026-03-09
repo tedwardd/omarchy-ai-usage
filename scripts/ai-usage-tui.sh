@@ -318,6 +318,36 @@ refresh_waybar() {
     pkill -RTMIN+9 waybar 2>/dev/null
 }
 
+update_waybar_interval() {
+    local new_interval="$1"
+    local waybar_config="$HOME/.config/waybar/config.jsonc"
+    [ -f "$waybar_config" ] || return 0
+
+    local tmp
+    tmp=$(mktemp) || return 1
+    python3 -c "
+import json, re, sys
+with open('$waybar_config', 'r') as f:
+    content = f.read()
+clean = re.sub(r'//.*\$', '', content, flags=re.MULTILINE)
+try:
+    data = json.loads(clean)
+except Exception as e:
+    sys.exit(1)
+if 'custom/ai-usage' in data:
+    data['custom/ai-usage']['interval'] = $new_interval
+with open('$tmp', 'w') as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+" 2>/dev/null
+
+    if [ -s "$tmp" ]; then
+        mv "$tmp" "$waybar_config"
+        omarchy-restart-waybar 2>/dev/null || pkill -HUP waybar 2>/dev/null || true
+    else
+        rm -f "$tmp"
+    fi
+}
+
 # ── Screens ───────────────────────────────────────────────────────────────────
 
 show_dashboard() {
@@ -447,7 +477,7 @@ show_settings() {
                     updated=$(jq --argjson i "$new_interval" --argjson t "$new_ttl" \
                         '.refresh_interval = $i | .cache_ttl_seconds = $t' "$AI_USAGE_CONFIG")
                     atomic_write "$AI_USAGE_CONFIG" "$updated"
-                    refresh_waybar
+                    update_waybar_interval "$new_interval"
                 fi
                 ;;
             t)
